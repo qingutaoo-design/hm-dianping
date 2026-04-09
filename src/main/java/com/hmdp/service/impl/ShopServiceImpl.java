@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
@@ -37,7 +38,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //先根据id查询缓存
         String shopInfo = stringRedisTemplate.opsForValue().get(cacheKey);
 
-        if(!shopInfo.isEmpty()) {
+        if(StrUtil.isNotBlank(shopInfo)) {
             //如果缓存中有数据，直接返回
             Shop shop = JSONUtil.toBean(shopInfo, Shop.class);
             return Result.ok(shop);
