@@ -42,16 +42,24 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //先根据id查询缓存
         String shopInfo = stringRedisTemplate.opsForValue().get(cacheKey);
 
+        //若shopInfo为空字符串，isNotBlank方法返回false
         if(StrUtil.isNotBlank(shopInfo)) {
             //如果缓存中有数据，直接返回
             log.info("从缓存中查询商铺信息，商铺id：{}", id);
             Shop shop = JSONUtil.toBean(shopInfo, Shop.class);
             return Result.ok(shop);
         }
+
+        if(shopInfo != null){
+            //如果缓存中有空字符串，说明数据库中没有数据，直接返回错误信息
+            return Result.fail("商铺不存在");
+        }
+
         //如果缓存中没有数据，根据id查询数据库
         Shop shop = shopMapper.selectById(id);
         if(shop == null) {
-            //如果数据库中没有数据，返回错误信息
+            //如果数据库中没有数据，返回错误信息,并将空字符串写入缓存，并设置过期时间
+            stringRedisTemplate.opsForValue().set(cacheKey,"",RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
             return Result.fail("商铺不存在");
         }
         //如果数据库中有数据，将数据写入缓存，并设置过期时间
