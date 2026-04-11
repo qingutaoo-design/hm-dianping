@@ -54,7 +54,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
             //如果数据库中没有数据，返回null
             return null;
         }
-        //如果数据库中有数据，将数据写入缓存，并设置过期时间
+        //如果数据库中有数据，将数据写入缓存
         stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(shopTypes));
         return shopTypes;
     }
