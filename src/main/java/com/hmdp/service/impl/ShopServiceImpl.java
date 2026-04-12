@@ -2,8 +2,10 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.entity.RedisData;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
@@ -16,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import java.time.LocalDateTime;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -41,14 +46,82 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 ////        解决缓存穿透（直接返回空值）
 //       Shop shop = dealWithPassThrough(id);
 
-        //解决缓存击穿（互斥锁）
-        Shop shop = queryWithMutex(id);
+//        //解决缓存击穿（互斥锁）
+//        Shop shop = queryWithMutex(id);
+
+        //解决缓存击穿（逻辑过期）
+
+        Shop shop = queryWithLogicExpire(id);
 
         if(shop == null){
             return Result.fail("商铺信息不存在");
         }
         return Result.ok(shop);
     }
+
+    private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
+
+    public Shop queryWithLogicExpire(Long id){
+        String cacheKey = RedisConstants.CACHE_SHOP_KEY + id;
+
+        //先根据id查询缓存
+        String cacheShop = stringRedisTemplate.opsForValue().get(cacheKey);
+
+        //若shopInfo为空字符串，isNotBlank方法返回false
+        if (StrUtil.isBlank(cacheShop)) {
+            //如果缓存没有数据，直接返回空
+            return null;
+        }
+
+        //如果命中了缓存，判断时间是否超时
+        RedisData redisData = JSONUtil.toBean(cacheShop, RedisData.class);
+        //旧数据,两次转换得来
+        Shop shop = JSONUtil.toBean((JSONObject) redisData.getData(), Shop.class);
+        //如果没超时，直接返还数据
+        if(redisData.getExpireTime().isAfter(LocalDateTime.now())){
+            return shop;
+        }
+        //如果超时，重建缓存，二次检验拿锁线程的数据是否可以直接返回
+        String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
+        if(tryLock(lockKey)){
+            if(redisData.getExpireTime().isAfter(LocalDateTime.now())){
+                return shop;
+            }
+            CACHE_REBUILD_EXECUTOR.submit( () ->{
+                        try{
+                            //重建缓存
+                            this.rebuildCacheWithLogicExpire(id,20L);
+                        }catch (Exception e){
+                            throw new RuntimeException(e);
+                        }finally {
+                            delLock(lockKey);
+                        }
+                    }
+
+            );
+        }
+
+        return shop;
+    }
+
+
+
+    public void rebuildCacheWithLogicExpire(Long id , Long time){
+
+        String key = RedisConstants.CACHE_SHOP_KEY + id;
+        LocalDateTime expireTime = LocalDateTime.now().plusSeconds(time);
+
+        RedisData redisData = new RedisData();
+        redisData.setData(shopMapper.selectById(id));
+        redisData.setExpireTime(expireTime);
+
+        String jsonStr = JSONUtil.toJsonStr(redisData);
+        log.info("重建缓存");
+        stringRedisTemplate.opsForValue().set(key,jsonStr);
+
+
+    }
+
 
     public Shop queryWithMutex(Long id) {
         String cacheShopKey = RedisConstants.CACHE_SHOP_KEY + id;
@@ -79,7 +152,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 Thread.sleep(50);
                 return queryWithMutex(id);
             }
-            log.info("获取锁成功");
+            log.info("拿到锁");
             //拿到锁的应该二次检查缓存中是否有了数据
             String cacheShop2 = stringRedisTemplate.opsForValue().get(cacheShopKey);
             if (StrUtil.isNotBlank(cacheShop2)) {
