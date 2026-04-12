@@ -10,6 +10,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private ShopMapper shopMapper;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private CacheClient cacheClient;
 
     @Override
     public Result getById(Long id) {
@@ -50,9 +53,15 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //        Shop shop = queryWithMutex(id);
 
         //解决缓存击穿（逻辑过期）
+//        Shop shop = queryWithLogicExpire(id);
 
-        Shop shop = queryWithLogicExpire(id);
 
+//        //调用自定义的缓存工具，解决查询缓存问题(示例：缓存穿透)
+//        Shop shop = cacheClient.queryWithPassThrough(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
+//        Shop shop = cacheClient.queryWithMutex(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
+        Shop shop = cacheClient.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.SECONDS);
         if(shop == null){
             return Result.fail("商铺信息不存在");
         }
