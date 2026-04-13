@@ -99,15 +99,21 @@ public class CacheClient {
 
         if(flag){
             //二次检查缓存是否过期
-            expireTime = redisData.getExpireTime();
-            if (expireTime.isAfter(LocalDateTime.now())){
-                return r;
+            String doubleCheck = stringRedisTemplate.opsForValue().get(key);
+            RedisData redisData1 = JSONUtil.toBean(doubleCheck, RedisData.class);
+            LocalDateTime expireTime1 = redisData1.getExpireTime();
+            if (expireTime1.isAfter(LocalDateTime.now())){
+                //此时还先需要解锁，防止后续的访问依然返回旧值
+                unlock(lockKey);
+                return JSONUtil.toBean((JSONObject) redisData1.getData(),type);
             }
             CACHE_REBUILD_EXECUTOR.submit(
                     () ->{
                         try {
                             R r1 = dbFallback.apply(id);
                             this.setWithLogicExpire(key,r1,time,unit);
+                            //模拟复杂缓存重建过程
+                            Thread.sleep(200);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         } finally {

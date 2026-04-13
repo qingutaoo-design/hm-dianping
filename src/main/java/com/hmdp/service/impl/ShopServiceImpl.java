@@ -93,8 +93,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //如果超时，重建缓存，二次检验拿锁线程的数据是否可以直接返回
         String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
         if(tryLock(lockKey)){
-            if(redisData.getExpireTime().isAfter(LocalDateTime.now())){
-                return shop;
+            String freshCache = stringRedisTemplate.opsForValue().get(cacheKey);
+            RedisData redisData1 = JSONUtil.toBean(freshCache, RedisData.class);
+            if(redisData1.getExpireTime().isAfter(LocalDateTime.now())){
+                Shop bean = JSONUtil.toBean((JSONObject) redisData1.getData(), Shop.class);
+                delLock(lockKey);
+                return bean;
             }
             CACHE_REBUILD_EXECUTOR.submit( () ->{
                         try{
