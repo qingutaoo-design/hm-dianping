@@ -59,9 +59,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 //        //调用自定义的缓存工具，解决查询缓存问题(示例：缓存穿透)
 //        Shop shop = cacheClient.queryWithPassThrough(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
-//        Shop shop = cacheClient.queryWithMutex(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        Shop shop = cacheClient.queryWithMutex(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
-        Shop shop = cacheClient.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.SECONDS);
+//        Shop shop = cacheClient.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, Shop.class, idL -> shopMapper.selectById(id), RedisConstants.CACHE_SHOP_TTL, TimeUnit.SECONDS);
         if(shop == null){
             return Result.fail("商铺信息不存在");
         }

@@ -44,7 +44,7 @@ class HmDianPingApplicationTests {
 
     @Test
     public void rebuildRedis(){
-        service.rebuildCacheWithLogicExpire(1L,10L);
+        service.rebuildCacheWithLogicExpire(6L,10L);
     }
 
 }
