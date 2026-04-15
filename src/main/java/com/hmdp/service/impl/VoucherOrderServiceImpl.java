@@ -16,8 +16,11 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -64,12 +67,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("活动已经结束!");
         }
         //判断是否还有库存
-        if(seckillVoucher.getStock() <= 0){
+        if(seckillVoucher.getStock() < 1){
             return Result.fail("优惠券已抢光！");
         }
         //活动开始，还没结束，且有库存
-        //下订单
-        long orderId = redisIdWorker.nextId("order");
+
+
 
         //扣库存
 //        //方法一：
@@ -86,10 +89,40 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //                .eq("voucher_id", voucherId)
 //                .gt("stock", 0));
 //
+
+        //todo 这里可以做二次验证，判断该用户是否已经抢过了
+
+        synchronized (UserHolder.getUser().getId().toString().intern()){
+            //这里需要使用代理技术，因为事务注解只能在被代理对象的方法上生效，而不能在当前对象的方法上生效，所以需要获取当前对象的代理对象来调用方法
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId);
+        }
+
+    }
+
+
+    @Transactional
+    public   Result createVoucherOrder(Long voucherId) {
+
+        //添加一人一单功能
+        int count = query().eq("user_id", UserHolder.getUser().getId())
+                .eq("voucher_id", voucherId).count();
+        if(count > 0){
+            return Result.fail("你已经抢过了！");
+        }
+        //下订单
+        long orderId = redisIdWorker.nextId("order");
         //方法三,标准答案
-        seckillVoucherService.update().setSql("stock = stock - 1")
+        //修改优惠券库存
+        boolean success = seckillVoucherService.update().setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
+                //乐观锁解决超卖问题，更新时判断库存是否大于0
                 .gt("stock", 0).update();
+
+        if (!success) {
+            //扣减库存
+            return Result.fail("库存不足！");
+        }
 
         //创建订单
         VoucherOrder voucherOrder = new VoucherOrder();
@@ -97,7 +130,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setUserId(UserHolder.getUser().getId());
         voucherOrder.setVoucherId(voucherId);
         save(voucherOrder);
-
         return Result.ok(orderId);
     }
 }
