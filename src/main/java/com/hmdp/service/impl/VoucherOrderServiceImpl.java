@@ -15,9 +15,11 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +51,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Autowired
     ISeckillVoucherService seckillVoucherService;
+
+    @Autowired
+    StringRedisTemplate stringRedisTemplate;
+
     /**
      * 下单秒杀优惠券
      * @param voucherId
@@ -92,15 +98,29 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         //todo 这里可以做二次验证，判断该用户是否已经抢过了
 
-        synchronized (UserHolder.getUser().getId().toString().intern()){
+
+        SimpleRedisLock simpleRedisLock = new SimpleRedisLock("order:" + UserHolder.getUser().getId(), stringRedisTemplate);
+
+        if(!simpleRedisLock.tryLock(120)) {
+            //获取锁失败，返回错误信息
+            return Result.fail("你已经抢过了！");
+        }
+        try {
             //这里需要使用代理技术，因为事务注解只能在被代理对象的方法上生效，而不能在当前对象的方法上生效，所以需要获取当前对象的代理对象来调用方法
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
+        } finally {
+            simpleRedisLock.unlock();
         }
 
     }
 
 
+    /**
+     * 实现一人一单
+     * @param voucherId
+     * @return
+     */
     @Transactional
     public   Result createVoucherOrder(Long voucherId) {
 
