@@ -98,7 +98,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         //todo 这里可以做二次验证，判断该用户是否已经抢过了
 
-
+        //添加分布式锁，解决一人多单问题
         SimpleRedisLock simpleRedisLock = new SimpleRedisLock("order:" + UserHolder.getUser().getId() , stringRedisTemplate);
 
         if(!simpleRedisLock.tryLock(1200)) {
