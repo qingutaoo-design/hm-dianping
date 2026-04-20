@@ -3,6 +3,7 @@
 --2.用户id，需要知道谁下的单，可以用来做一些限制，比如说一个用户只能买一件，或者说这个用户之前买过了，就不能再买了
 local voucherId = ARGV[1]
 local userId = ARGV[2]
+--订单id
 local orderId = ARGV[3]
 
 local stockKey = "seckill:stock:" .. voucherId
@@ -20,4 +21,6 @@ end
 redis.call('incrby',stockKey,-1)
 --保存用户
 redis.call('sadd',orderKey,userId)
+--将订单信息保存到mq中
+redis.call('XADD','stream.orders','*','userId',userId,'voucherId',voucherId,'id',orderId)
 return 0
