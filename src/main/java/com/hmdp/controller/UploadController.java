@@ -3,11 +3,13 @@ package com.hmdp.controller;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.utils.AliOssUtil;
 import com.hmdp.utils.SystemConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
@@ -16,6 +18,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("upload")
 public class UploadController {
+    @Resource
+    AliOssUtil aliOssUtil;
 
     @PostMapping("blog")
     public Result uploadImage(@RequestParam("file") MultipartFile image) {
@@ -33,6 +37,7 @@ public class UploadController {
             throw new RuntimeException("文件上传失败", e);
         }
     }
+
 
     @GetMapping("/blog/delete")
     public Result deleteBlogImg(@RequestParam("name") String filename) {
@@ -60,4 +65,22 @@ public class UploadController {
         // 生成文件名
         return StrUtil.format("/blogs/{}/{}/{}.{}", d1, d2, name, suffix);
     }
+
+//    @PostMapping("/blog")
+//    public Result upload(@RequestParam("file") MultipartFile file)  {
+//        String originalFilename = file.getOriginalFilename();
+//        String suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
+//        String objectName = UUID.randomUUID().toString()+ suffix;
+//
+//        try {
+//            String filePath = aliOssUtil.upload(file.getBytes(), objectName);
+//            log.info("文件上传成功，访问路径：{}", filePath);
+//            return  Result.ok(filePath);
+//        } catch (IOException e) {
+//            log.info("文件上传失败，错误信息：{}", e.getMessage());
+//        }
+//        return Result.fail("文件上传失败");
+//    }
+
+
 }

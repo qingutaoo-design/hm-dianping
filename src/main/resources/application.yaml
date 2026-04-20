@@ -26,3 +26,9 @@ mybatis-plus:
 logging:
   level:
     com.hmdp: debug
+hm-dianping:
+  alioss:
+    access-key-id: LTAI5t9vhhq3EEpeJF8AXZxP
+    access-key-secret: FVtRqv15n3VnUynsehlMMadI4CMCTU
+    bucket-name: luujjvv
+    endpoint: oss-cn-beijing.aliyuncs.com
