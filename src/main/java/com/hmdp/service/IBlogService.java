@@ -22,5 +22,4 @@ public interface IBlogService extends IService<Blog> {
 
     Result likeBlog(Long id);
 
-//    void isBlogLiked(Blog blog);
 }

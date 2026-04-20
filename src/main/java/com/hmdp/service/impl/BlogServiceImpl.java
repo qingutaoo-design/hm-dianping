@@ -54,7 +54,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
             User user = userService.getById(userId);
             blog.setName(user.getNickName());
             blog.setIcon(user.getIcon());
-//            isBlogLiked(blog);
+            isBlogLiked(blog);
         });
         return records;
     }
@@ -67,20 +67,20 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         User user = userService.getById(userId);
         blog.setName(user.getNickName());
         blog.setIcon(user.getIcon());
-//        isBlogLiked(blog);
+        isBlogLiked(blog);
+
         return Result.ok(blog);
     }
 
-//    @Override
-//    public void isBlogLiked(Blog blog) {
-//        // 1.获取登录用户
-//        Long userId = UserHolder.getUser().getId();
-//        // 2.判断当前登录用户是否已经点赞
-//        String key = BLOG_LIKED_KEY + blog.getId();
-//        Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
-//        blog.setIsLike(BooleanUtil.isTrue(isMember));
-//
-//    }
+    public void isBlogLiked(Blog blog) {
+        // 1.获取登录用户
+        Long userId = UserHolder.getUser().getId();
+        // 2.判断当前登录用户是否已经点赞
+        String key = BLOG_LIKED_KEY + blog.getId();
+        Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
+        blog.setIsLike(BooleanUtil.isTrue(isMember));
+
+    }
 
     @Override
     public Result likeBlog(Long id) {
