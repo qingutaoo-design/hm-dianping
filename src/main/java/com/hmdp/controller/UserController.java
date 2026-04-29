@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -15,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 /**
@@ -61,9 +63,13 @@ public class UserController {
      * @return 无
      */
     @PostMapping("/logout")
-    public Result logout(){
-        // TODO 实现登出功能
-        return Result.fail("功能未完成");
+    public Result logout(HttpServletRequest request){
+        // 获取请求头中的token
+        String token = request.getHeader("authorization");
+        if (StrUtil.isNotBlank(token)) {
+            userService.logout(token);
+        }
+        return Result.ok();
     }
 
     /**

@@ -105,6 +105,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Result.ok(token);
     }
 
+    @Override
+    public Result logout(String token) {
+        // 从redis中删除对应用户的token
+        stringRedisTemplate.delete(RedisConstants.LOGIN_USER_KEY + token);
+        return Result.ok();
+    }
+
     private User createUserWithPhone(String phone){
         User user = new User()
                 .setPhone(phone)
