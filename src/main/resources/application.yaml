@@ -7,11 +7,13 @@ spring:
     driver-class-name: com.mysql.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: 123456
+    #需要修改为自己的pwd
+    password: ######
   redis:
     host: 127.0.0.1
     port: 6379
-    password: 123456
+    #需要修改为自己的pwd
+    password: ######
     lettuce:
       pool:
         max-active: 10
@@ -28,7 +30,8 @@ logging:
     com.hmdp: debug
 hm-dianping:
   alioss:
-    access-key-id: LTAI5t9vhhq3EEpeJF8AXZxP
-    access-key-secret: FVtRqv15n3VnUynsehlMMadI4CMCTU
-    bucket-name: luujjvv
+  #需修改为自己的access-key
+    access-key-id: #######
+    access-key-secret: #######
+    bucket-name: #####
     endpoint: oss-cn-beijing.aliyuncs.com
