@@ -1,6 +1,12 @@
 server:
   port: 8081
 spring:
+  kafka:
+    bootstrap-servers: localhost:9094,localhost:9095,localhost:9096
+    listener:
+      ack-mode: manual
+    consumer:
+      auto-offset-reset: earliest
   application:
     name: hmdp
   datasource:

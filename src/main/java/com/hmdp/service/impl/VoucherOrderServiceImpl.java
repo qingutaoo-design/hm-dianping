@@ -1,6 +1,7 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.Update;
@@ -18,6 +19,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
@@ -27,9 +29,14 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.concurrent.ListenableFuture;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -40,11 +47,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * <p>
@@ -78,105 +81,123 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedissonClient redissonClient;
 
+    // 注入自身对象，解决方法内部调用事务失效的问题
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    private IVoucherOrderService voucherOrderService;
 
 
-    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+//    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
+//
+//    private volatile boolean running = true;
 
-    private volatile boolean running = true;
-
+    //代理对象实现写数据库操作
     IVoucherOrderService proxy;
-    @PostConstruct
-    public void init(){
-        SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
-    }
+//    @PostConstruct
+//    public void init(){
+//        SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+//    }
+//
+//    @PreDestroy
+//    public void destroy() {
+//        running = false;
+//        SECKILL_ORDER_EXECUTOR.shutdown();
+//        try {
+//            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
+//                SECKILL_ORDER_EXECUTOR.shutdownNow();
+//            }
+//        } catch (InterruptedException e) {
+//            SECKILL_ORDER_EXECUTOR.shutdownNow();
+//            Thread.currentThread().interrupt();
+//        }
+//    }
 
-    @PreDestroy
-    public void destroy() {
-        running = false;
-        SECKILL_ORDER_EXECUTOR.shutdown();
-        try {
-            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
-                SECKILL_ORDER_EXECUTOR.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            SECKILL_ORDER_EXECUTOR.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
+//    private class VoucherOrderHandler implements Runnable{
+//
+//        @Override
+//        public void run() {
+//            //优雅的关闭线程池，等待线程池中的任务执行完毕后再关闭线程池
+//            while(running){
+//                try {
+//                    //从消息队列中获取订单信息  XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID [ID ...]
+//                    List<MapRecord<String, Object, Object>> read = stringRedisTemplate.opsForStream().read(Consumer.from("g1", "c1"),
+//                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
+//                            StreamOffset.create("stream.orders", ReadOffset.lastConsumed())
+//                    );
+//                    //判断是否获取到订单信息
+//                    if(read == null || read.isEmpty()){
+//                        //没有获取到订单信息，继续下一次循环
+//                        continue;
+//                    }
+//                    //获取到订单信息
+//                    Map<Object, Object> value = read.get(0).getValue();
+//                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
+//
+//
+//                    //创建订单
+//                    //异步下单导致无法获取到代理对象，因为代理对象也是基于原线程创建的，所以只能通过成员变量获取代理对象
+//                    //也是因为异步下单，导致无法获取到UserHolder中的用户信息，因为UserHolder中的用户信息是基于ThreadLocal存储的
+//                    //可以根据订单信息中的用户id查询用户信息
+//                    proxy.createVoucherOrder(voucherOrder);
+//                    //ACK确认消息
+//                    stringRedisTemplate.opsForStream().acknowledge("g1", "stream.orders", read.get(0).getId());
+//                } catch (Exception e) {
+//                    handlePendingList();
+//                    log.error("处理订单异常", e);
+//                }
+//            }
+//        }
+//
+//        private void handlePendingList() {
+//            while(running){
+//                try {
+//                    //从pending-list中获取订单信息  XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID [ID ...]
+//                    //区别在于偏移量，pending-list中的订单信息的偏移量是ReadOffset.from("0")，而不是ReadOffset.lastConsumed()
+//                    List<MapRecord<String, Object, Object>> read = stringRedisTemplate.opsForStream().read(Consumer.from("g1", "c1"),
+//                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
+//                            StreamOffset.create("stream.orders", ReadOffset.from("0"))
+//                    );
+//                    //判断是否获取到订单信息
+//                    if(read == null || read.isEmpty()){
+//                        //没有获取到订单信息，继续下一次循环
+//                        continue;
+//                    }
+//                    //获取到订单信息
+//                    Map<Object, Object> value = read.get(0).getValue();
+//                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
+//
+//                    //创建订单
+//                    //异步下单导致无法获取到代理对象，因为代理对象也是基于原线程创建的，所以只能通过成员变量获取代理对象
+//                    //也是因为异步下单，导致无法获取到UserHolder中的用户信息，因为UserHolder中的用户信息是基于ThreadLocal存储的
+//                    //可以根据订单信息中的用户id查询用户信息
+//                    proxy.createVoucherOrder(voucherOrder);
+//                    //ACK确认消息
+//                    stringRedisTemplate.opsForStream().acknowledge("g1", "stream.orders", read.get(0).getId());
+//                } catch (Exception e) {
+//                    log.error("处理订单异常", e);
+//                    //如果处理pending-list中的订单信息出现异常，继续下一次循环，避免阻塞
+//                    try {
+//                        Thread.sleep(20);
+//                    } catch (InterruptedException ex) {
+//                        ex.printStackTrace();
+//                    }
+//
+//                }
+//            }
+//        }
+//    }
 
-    private class VoucherOrderHandler implements Runnable{
-
-        @Override
-        public void run() {
-            //优雅的关闭线程池，等待线程池中的任务执行完毕后再关闭线程池
-            while(running){
-                try {
-                    //从消息队列中获取订单信息  XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID [ID ...]
-                    List<MapRecord<String, Object, Object>> read = stringRedisTemplate.opsForStream().read(Consumer.from("g1", "c1"),
-                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
-                            StreamOffset.create("stream.orders", ReadOffset.lastConsumed())
-                    );
-                    //判断是否获取到订单信息
-                    if(read == null || read.isEmpty()){
-                        //没有获取到订单信息，继续下一次循环
-                        continue;
-                    }
-                    //获取到订单信息
-                    Map<Object, Object> value = read.get(0).getValue();
-                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
-
-
-                    //创建订单
-                    //异步下单导致无法获取到代理对象，因为代理对象也是基于原线程创建的，所以只能通过成员变量获取代理对象
-                    //也是因为异步下单，导致无法获取到UserHolder中的用户信息，因为UserHolder中的用户信息是基于ThreadLocal存储的
-                    //可以根据订单信息中的用户id查询用户信息
-                    proxy.createVoucherOrder(voucherOrder);
-                    //ACK确认消息
-                    stringRedisTemplate.opsForStream().acknowledge("g1", "stream.orders", read.get(0).getId());
-                } catch (Exception e) {
-                    handlePendingList();
-                    log.error("处理订单异常", e);
-                }
-            }
-        }
-
-        private void handlePendingList() {
-            while(running){
-                try {
-                    //从pending-list中获取订单信息  XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID [ID ...]
-                    //区别在于偏移量，pending-list中的订单信息的偏移量是ReadOffset.from("0")，而不是ReadOffset.lastConsumed()
-                    List<MapRecord<String, Object, Object>> read = stringRedisTemplate.opsForStream().read(Consumer.from("g1", "c1"),
-                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
-                            StreamOffset.create("stream.orders", ReadOffset.from("0"))
-                    );
-                    //判断是否获取到订单信息
-                    if(read == null || read.isEmpty()){
-                        //没有获取到订单信息，继续下一次循环
-                        continue;
-                    }
-                    //获取到订单信息
-                    Map<Object, Object> value = read.get(0).getValue();
-                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
-
-                    //创建订单
-                    //异步下单导致无法获取到代理对象，因为代理对象也是基于原线程创建的，所以只能通过成员变量获取代理对象
-                    //也是因为异步下单，导致无法获取到UserHolder中的用户信息，因为UserHolder中的用户信息是基于ThreadLocal存储的
-                    //可以根据订单信息中的用户id查询用户信息
-                    proxy.createVoucherOrder(voucherOrder);
-                    //ACK确认消息
-                    stringRedisTemplate.opsForStream().acknowledge("g1", "stream.orders", read.get(0).getId());
-                } catch (Exception e) {
-                    log.error("处理订单异常", e);
-                    //如果处理pending-list中的订单信息出现异常，继续下一次循环，避免阻塞
-                    try {
-                        Thread.sleep(20);
-                    } catch (InterruptedException ex) {
-                        ex.printStackTrace();
-                    }
-
-                }
-            }
-        }
+    @Resource
+    private KafkaTemplate<String,String> kafkaTemplate;
+    //从kafka消息队列中获取订单信息
+    //可在配置文件中解耦，为了方便测试，直接写在代码当中
+    @KafkaListener(groupId = "my-kafka-group" , topics = "kafka-orders",concurrency = "3")
+    void onEvents(String event, Acknowledgment ack){
+        System.out.println("消费者线程id: " + Thread.currentThread().getId() + "，消费订单消息: " + event);
+        VoucherOrder voucherOrder = JSONUtil.toBean(event, VoucherOrder.class);
+        // 使用注入的代理对象调用，保证 @Transactional 生效
+        voucherOrderService.createVoucherOrder(voucherOrder);
+        ack.acknowledge();
     }
 
 
@@ -187,7 +208,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_SCRIPT.setResultType(Long.class);
     }
 
-    //从redis的stream消息队列中进行异步下单
+
+//    使用kafka生产者将订单信息发送到kafka消息队列中
+    //使用kafka的回调函数异步获取发送结果，发送成功后返回订单id，发送失败后返回错误信息
     @Override
     public Result orderSeckillVoucher(Long voucherId) {
         //创建订单id
@@ -207,17 +230,61 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("你已经抢过了！");
         }
 
+        //此时断定抢到了,将消息放入kafka消息队列中
+        //使用回调函数不阻塞当前线程，异步获取发送结果，发送成功后返回订单id，发送失败后返回错误信息
+
+        VoucherOrder voucherOrder = VoucherOrder.builder()
+                .voucherId(voucherId)
+                .userId(UserHolder.getUser().getId()).id(orderId).build();
+        String voucherOrderJSON = JSONUtil.toJsonStr(voucherOrder);
+
+        ListenableFuture<SendResult<String, String>> future = kafkaTemplate.send("kafka-orders", voucherOrderJSON);
+         future.completable()
+                .thenAccept(producerResult -> {
+                    ProducerRecord<String, String> producerRecord = producerResult.getProducerRecord();
+                    System.out.println("生产者发送结果:" + producerRecord.toString());
+                })
+                .exceptionally(ex -> {
+                    log.error("Kafka发送订单消息失败", ex);
+                    return null;
+                });
 
         //抢到了，将订单信息放入消息队列当中
-
-
-        //赋值代理对象
-        proxy = (IVoucherOrderService) AopContext.currentProxy();
-        //异步下单
-
         //抢到了，返回订单id
         return Result.ok(orderId);
     }
+
+
+//    //从redis的stream消息队列中进行异步下单
+//    @Override
+//    public Result orderSeckillVoucher(Long voucherId) {
+//        //创建订单id
+//        long orderId = redisIdWorker.nextId("order");
+//
+//        //执行lua脚本，判断用户是否下单成功，并且将订单信息保存到redis的stream消息队列当中
+//        Long result = stringRedisTemplate.execute(SECKILL_SCRIPT,
+//                Collections.EMPTY_LIST,
+//                //添加订单id
+//                voucherId.toString(), UserHolder.getUser().getId().toString(),String.valueOf(orderId));
+//        //返回结果为0，说明抢到了
+//        //返回结果为1，说明库存不足
+//        //返回结果为2，说明用户已经抢过了
+//        if(result == 1L){
+//            return Result.fail("库存不足！");
+//        } else if(result == 2L){
+//            return Result.fail("你已经抢过了！");
+//        }
+//
+//
+//        //抢到了，将订单信息放入消息队列当中
+//
+//        //赋值代理对象
+//        proxy = (IVoucherOrderService) AopContext.currentProxy();
+//        //异步下单
+//
+//        //抢到了，返回订单id
+//        return Result.ok(orderId);
+//    }
 
 
 //    /**
