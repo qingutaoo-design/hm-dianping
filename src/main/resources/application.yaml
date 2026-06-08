@@ -14,12 +14,12 @@ spring:
     url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
     #需要修改为自己的pwd
-    password: ######
+    password: 123456
   redis:
     host: 127.0.0.1
     port: 6379
     #需要修改为自己的pwd
-    password: ######
+    password: 123456
     lettuce:
       pool:
         max-active: 10
