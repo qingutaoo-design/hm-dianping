@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS `tb_voucher_order`;
+DROP TABLE IF EXISTS `tb_voucher`;
+DROP TABLE IF EXISTS `tb_user_info`;
+DROP TABLE IF EXISTS `tb_user`;
+DROP TABLE IF EXISTS `tb_sign`;
+DROP TABLE IF EXISTS `tb_shop_type`;
+DROP TABLE IF EXISTS `tb_shop`;
+DROP TABLE IF EXISTS `tb_seckill_voucher`;
+DROP TABLE IF EXISTS `tb_follow`;
+DROP TABLE IF EXISTS `tb_blog_comments`;
+DROP TABLE IF EXISTS `tb_blog`;
