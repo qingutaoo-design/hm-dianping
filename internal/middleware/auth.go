@@ -1,4 +1,4 @@
-package middleware
+﻿package middleware
 
 import (
 	"net/http"
@@ -10,7 +10,8 @@ import (
 	"hm-dianping/internal/config"
 	"hm-dianping/internal/constants"
 	userctx "hm-dianping/internal/ctx"
-	"hm-dianping/internal/dto"
+	"hm-dianping/internal/model"
+	"hm-dianping/internal/response"
 )
 
 func Auth(cfg *config.Config, rdb *redis.Client) gin.HandlerFunc {
@@ -31,13 +32,13 @@ func Auth(cfg *config.Config, rdb *redis.Client) gin.HandlerFunc {
 				c.Next()
 				return
 			}
-			c.JSON(http.StatusOK, dto.Fail("请先登录"))
+			c.JSON(http.StatusOK, response.Fail("请先登录"))
 			c.Abort()
 			return
 		}
 
 		if !loadUserByToken(c, rdb, token) {
-			c.JSON(http.StatusUnauthorized, dto.Fail("登录状态已失效"))
+			c.JSON(http.StatusUnauthorized, response.Fail("登录状态已失效"))
 			c.Abort()
 			return
 		}
@@ -57,15 +58,16 @@ func loadUserByToken(c *gin.Context, rdb *redis.Client, token string) bool {
 	if err != nil || len(values) == 0 {
 		return false
 	}
-	var user dto.UserDTO
+	var user model.UserView
 	if id, ok := values["id"]; ok {
-		_, _ = fmtSscanf(id, &user.ID)
+		parsed, err := parseUint(id)
+		if err != nil { return false }
+		user.ID = parsed
 	}
 	user.NickName = values["nickName"]
 	user.Icon = values["icon"]
-	if user.ID == 0 {
-		return false
-	}
+	if user.ID == 0 { return false }
+
 	userctx.SaveUser(c, user)
 	_ = rdb.Expire(c.Request.Context(), constants.LoginUserKey+token, constants.LoginUserTTL).Err()
 	return true
@@ -77,12 +79,12 @@ func isPublic(method, path string) bool {
 		return true
 	case method == http.MethodPost && path == "/user/login":
 		return true
-	case strings.HasPrefix(path, "/shop"):
-		return method == http.MethodGet
-	case strings.HasPrefix(path, "/shop-type"):
-		return method == http.MethodGet
-	case strings.HasPrefix(path, "/voucher"):
-		return method == http.MethodGet
+	case strings.HasPrefix(path, "/shop") && method == http.MethodGet:
+		return true
+	case strings.HasPrefix(path, "/shop-type") && method == http.MethodGet:
+		return true
+	case strings.HasPrefix(path, "/voucher") && method == http.MethodGet:
+		return true
 	case strings.HasPrefix(path, "/upload"):
 		return true
 	case path == "/blog/hot" || path == "/blog/:id" || path == "/blog/likes/:id" || path == "/blog/of/user":

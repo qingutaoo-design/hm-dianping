@@ -1,27 +1,27 @@
-package ctx
+﻿package ctx
 
 import (
 	"errors"
 
 	"github.com/gin-gonic/gin"
 
-	"hm-dianping/internal/dto"
+	"hm-dianping/internal/model"
 )
 
 const userKey = "currentUser"
 
-func SaveUser(c *gin.Context, user dto.UserDTO) {
+func SaveUser(c *gin.Context, user model.UserView) {
 	c.Set(userKey, user)
 }
 
-func CurrentUser(c *gin.Context) (dto.UserDTO, error) {
+func CurrentUser(c *gin.Context) (model.UserView, error) {
 	value, ok := c.Get(userKey)
 	if !ok {
-		return dto.UserDTO{}, errors.New("用户未登录")
+		return model.UserView{}, errors.New("用户未登录")
 	}
-	user, ok := value.(dto.UserDTO)
+	user, ok := value.(model.UserView)
 	if !ok || user.ID == 0 {
-		return dto.UserDTO{}, errors.New("用户未登录")
+		return model.UserView{}, errors.New("用户未登录")
 	}
 	return user, nil
 }

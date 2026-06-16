@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -14,11 +14,10 @@ import (
 	"gorm.io/gorm"
 
 	"hm-dianping/internal/constants"
-	"hm-dianping/internal/dto"
 	"hm-dianping/internal/model"
 )
 
-var phonePattern = regexp.MustCompile(`^1[3-9]\d{9}$`)
+var phonePattern = regexp.MustCompile("^1[3-9]\\d{9}$")
 
 type UserService struct {
 	db  *gorm.DB
@@ -40,39 +39,38 @@ func (s *UserService) SendCode(ctx context.Context, phone string) (string, error
 	return code, nil
 }
 
-func (s *UserService) Login(ctx context.Context, form dto.LoginForm) (string, error) {
-	if !phonePattern.MatchString(form.Phone) {
+func (s *UserService) Login(ctx context.Context, phone, code string) (string, error) {
+	if !phonePattern.MatchString(phone) {
 		return "", errors.New("手机号格式错误")
 	}
-	cacheCode, err := s.rdb.Get(ctx, constants.LoginCodeKey+form.Phone).Result()
+	cacheCode, err := s.rdb.Get(ctx, constants.LoginCodeKey+phone).Result()
 	if err == redis.Nil || cacheCode == "" {
 		return "", errors.New("验证码不存在或已过期")
 	}
 	if err != nil {
 		return "", err
 	}
-	if cacheCode != form.Code {
+	if cacheCode != code {
 		return "", errors.New("验证码错误")
 	}
 
 	var user model.User
-	if err := s.db.WithContext(ctx).Where("phone = ?", form.Phone).First(&user).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("phone = ?", phone).First(&user).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", err
 		}
-		user = model.User{Phone: form.Phone, NickName: constants.UserNickPrefx + uuid.NewString()[:12]}
+		user = model.User{Phone: phone, NickName: constants.UserNickPrefx + uuid.NewString()[:12]}
 		if err := s.db.WithContext(ctx).Create(&user).Error; err != nil {
 			return "", err
 		}
 	}
 
 	token := uuid.NewString()
-	userDTO := toUserDTO(user)
 	key := constants.LoginUserKey + token
 	values := map[string]any{
-		"id":       strconv.FormatUint(userDTO.ID, 10),
-		"nickName": userDTO.NickName,
-		"icon":     userDTO.Icon,
+		"id":       strconv.FormatUint(user.ID, 10),
+		"nickName": user.NickName,
+		"icon":     user.Icon,
 	}
 	if err := s.rdb.HSet(ctx, key, values).Err(); err != nil {
 		return "", err
@@ -80,7 +78,7 @@ func (s *UserService) Login(ctx context.Context, form dto.LoginForm) (string, er
 	if err := s.rdb.Expire(ctx, key, constants.LoginUserTTL).Err(); err != nil {
 		return "", err
 	}
-	_ = s.rdb.Del(ctx, constants.LoginCodeKey+form.Phone).Err()
+	_ = s.rdb.Del(ctx, constants.LoginCodeKey+phone).Err()
 	return token, nil
 }
 
@@ -91,12 +89,12 @@ func (s *UserService) Logout(ctx context.Context, token string) error {
 	return s.rdb.Del(ctx, constants.LoginUserKey+token).Err()
 }
 
-func (s *UserService) GetDTO(ctx context.Context, id uint64) (dto.UserDTO, error) {
+func (s *UserService) GetUserView(ctx context.Context, id uint64) (model.UserView, error) {
 	var user model.User
 	if err := s.db.WithContext(ctx).First(&user, id).Error; err != nil {
-		return dto.UserDTO{}, err
+		return model.UserView{}, err
 	}
-	return toUserDTO(user), nil
+	return toUserView(user), nil
 }
 
 func (s *UserService) GetInfo(ctx context.Context, id uint64) (*model.UserInfo, error) {
@@ -110,6 +108,22 @@ func (s *UserService) GetInfo(ctx context.Context, id uint64) (*model.UserInfo, 
 	return &info, nil
 }
 
-func toUserDTO(user model.User) dto.UserDTO {
-	return dto.UserDTO{ID: user.ID, NickName: user.NickName, Icon: user.Icon}
+func toUserView(user model.User) model.UserView {
+	return model.UserView{ID: user.ID, NickName: user.NickName, Icon: user.Icon}
+}
+
+// UsersByIDs 批量查询用户视图
+func (s *UserService) UsersByIDs(ctx context.Context, ids []uint64) (map[uint64]model.UserView, error) {
+	if len(ids) == 0 {
+		return map[uint64]model.UserView{}, nil
+	}
+	var users []model.User
+	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[uint64]model.UserView, len(users))
+	for _, user := range users {
+		result[user.ID] = toUserView(user)
+	}
+	return result, nil
 }

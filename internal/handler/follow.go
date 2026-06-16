@@ -1,72 +1,44 @@
-package handler
+﻿package handler
 
 import (
 	"github.com/gin-gonic/gin"
 
+	"hm-dianping/internal/ctx"
 	"hm-dianping/internal/service"
 )
 
-type FollowHandler struct {
-	service *service.FollowService
+func HandleFollowFollow(svc *service.FollowService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, err := ctx.CurrentUser(c)
+		if err != nil { writeFail(c, err); return }
+		id, err := pathUint(c, "id")
+		if err != nil { writeFail(c, err); return }
+		isFollow := c.Param("isFollow") == "true"
+		if err := svc.Follow(c.Request.Context(), user.ID, id, isFollow); err != nil { writeFail(c, err); return }
+		writeOK(c, nil)
+	}
 }
 
-func NewFollowHandler(service *service.FollowService) *FollowHandler {
-	return &FollowHandler{service: service}
+func HandleFollowIsFollow(svc *service.FollowService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, err := ctx.CurrentUser(c)
+		if err != nil { writeFail(c, err); return }
+		id, err := pathUint(c, "id")
+		if err != nil { writeFail(c, err); return }
+		result, err := svc.IsFollow(c.Request.Context(), user.ID, id)
+		if err != nil { writeFail(c, err); return }
+		writeOK(c, result)
+	}
 }
 
-func (h *FollowHandler) Follow(c *gin.Context) {
-	user, err := currentUser(c)
-	if err != nil {
-		writeFail(c, err)
-		return
+func HandleFollowCommon(svc *service.FollowService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, err := ctx.CurrentUser(c)
+		if err != nil { writeFail(c, err); return }
+		otherID, err := pathUint(c, "id")
+		if err != nil { writeFail(c, err); return }
+		users, err := svc.Commons(c.Request.Context(), user.ID, otherID)
+		if err != nil { writeFail(c, err); return }
+		writeOK(c, users)
 	}
-	followUserID, err := pathUint(c, "id")
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	isFollow := c.Param("isFollow") == "true"
-	if err := h.service.Follow(c.Request.Context(), user.ID, followUserID, isFollow); err != nil {
-		writeFail(c, err)
-		return
-	}
-	writeOK(c, nil)
-}
-
-func (h *FollowHandler) IsFollow(c *gin.Context) {
-	user, err := currentUser(c)
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	followUserID, err := pathUint(c, "id")
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	result, err := h.service.IsFollow(c.Request.Context(), user.ID, followUserID)
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	writeOK(c, result)
-}
-
-func (h *FollowHandler) Common(c *gin.Context) {
-	user, err := currentUser(c)
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	otherID, err := pathUint(c, "id")
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	users, err := h.service.Commons(c.Request.Context(), user.ID, otherID)
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	writeOK(c, users)
 }

@@ -1,5 +1,6 @@
-package dto
+﻿package response
 
+// Result 统一 API 响应格式
 type Result struct {
 	Success  bool   `json:"success"`
 	ErrorMsg string `json:"errorMsg,omitempty"`
@@ -20,22 +21,4 @@ func OKList(data any, total int64) Result {
 
 func Fail(message string) Result {
 	return Result{Success: false, ErrorMsg: message}
-}
-
-type LoginForm struct {
-	Phone    string `json:"phone" form:"phone" binding:"required"`
-	Code     string `json:"code" form:"code"`
-	Password string `json:"password" form:"password"`
-}
-
-type UserDTO struct {
-	ID       uint64 `json:"id,string" redis:"id"`
-	NickName string `json:"nickName" redis:"nickName"`
-	Icon     string `json:"icon" redis:"icon"`
-}
-
-type ScrollResult struct {
-	List    any   `json:"list"`
-	MinTime int64 `json:"minTime"`
-	Offset  int64 `json:"offset"`
 }

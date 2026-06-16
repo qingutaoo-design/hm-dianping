@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"errors"
@@ -12,12 +12,16 @@ import (
 )
 
 type UploadService struct {
-	cfg *config.Config
+	cfg   *config.Config
+	store FileStore
 }
 
 func NewUploadService(cfg *config.Config) *UploadService {
-	return &UploadService{cfg: cfg}
+	return &UploadService{cfg: cfg, store: &localFS{}}
 }
+
+// SetFileStore 允许测试时注入 mock
+func (s *UploadService) SetFileStore(fs FileStore) { s.store = fs }
 
 func (s *UploadService) SaveBlogImage(file *multipart.FileHeader) (string, error) {
 	if file == nil || file.Filename == "" {
@@ -33,15 +37,15 @@ func (s *UploadService) SaveBlogImage(file *multipart.FileHeader) (string, error
 	relative := filepath.Join("blogs", dir1, dir2, name)
 	publicPath := strings.ReplaceAll(filepath.ToSlash(filepath.Join(s.cfg.Upload.PublicPrefix, relative)), "//", "/")
 	fullPath := filepath.Join(s.cfg.Upload.ImageDir, relative)
-	return publicPath, saveUploadedFile(file, fullPath)
+	return publicPath, s.store.Save(file, fullPath)
 }
 
 func (s *UploadService) DeleteBlogImage(name string) error {
 	relative := strings.TrimPrefix(name, s.cfg.Upload.PublicPrefix)
-	relative = strings.TrimLeft(relative, `/\`)
+	relative = strings.TrimLeft(relative, "\\/")
 	clean := filepath.Clean(relative)
 	if clean == "." || filepath.IsAbs(clean) || strings.Contains(clean, "..") {
 		return errors.New("非法文件路径")
 	}
-	return removeFile(filepath.Join(s.cfg.Upload.ImageDir, clean))
+	return s.store.Remove(filepath.Join(s.cfg.Upload.ImageDir, clean))
 }

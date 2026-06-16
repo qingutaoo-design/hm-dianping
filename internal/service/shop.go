@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -28,6 +28,7 @@ func NewShopService(db *gorm.DB, rdb *redis.Client) *ShopService {
 
 func (s *ShopService) GetByID(ctx context.Context, id uint64) (*model.Shop, error) {
 	key := constants.CacheShopKey + strconv.FormatUint(id, 10)
+
 	cached, err := s.rdb.Get(ctx, key).Result()
 	if err == nil {
 		if cached == "" {
@@ -44,15 +45,17 @@ func (s *ShopService) GetByID(ctx context.Context, id uint64) (*model.Shop, erro
 
 	lockKey := constants.LockShopKey + strconv.FormatUint(id, 10)
 	owner := uuid.NewString()
-	locked, err := s.rdb.SetNX(ctx, lockKey, owner, constants.LockShopTTL).Result()
-	if err != nil {
-		return nil, err
+
+	const maxRetries = 5
+	for i := 0; i < maxRetries; i++ {
+		locked, err := s.rdb.SetNX(ctx, lockKey, owner, constants.LockShopTTL).Result()
+		if err != nil { return nil, err }
+		if locked { break }
+		backoff := time.Duration(50+(i*25)) * time.Millisecond
+		time.Sleep(backoff)
 	}
-	if !locked {
-		time.Sleep(50 * time.Millisecond)
-		return s.GetByID(ctx, id)
-	}
-	defer s.rdb.Eval(ctx, script.UnlockLua, []string{lockKey}, owner)
+
+	defer s.rdb.Eval(context.Background(), script.UnlockLua, []string{lockKey}, owner)
 
 	var shop model.Shop
 	if err := s.db.WithContext(ctx).First(&shop, id).Error; err != nil {
@@ -84,21 +87,16 @@ func (s *ShopService) Update(ctx context.Context, shop *model.Shop) error {
 }
 
 func (s *ShopService) PageByType(ctx context.Context, typeID uint64, current int) ([]model.Shop, error) {
-	if current < 1 {
-		current = 1
-	}
+	if current < 1 { current = 1 }
 	var shops []model.Shop
 	err := s.db.WithContext(ctx).Where("type_id = ?", typeID).
 		Offset((current - 1) * constants.DefaultPageSize).
-		Limit(constants.DefaultPageSize).
-		Find(&shops).Error
+		Limit(constants.DefaultPageSize).Find(&shops).Error
 	return shops, err
 }
 
 func (s *ShopService) PageByName(ctx context.Context, name string, current int) ([]model.Shop, error) {
-	if current < 1 {
-		current = 1
-	}
+	if current < 1 { current = 1 }
 	var shops []model.Shop
 	q := s.db.WithContext(ctx)
 	if name != "" {

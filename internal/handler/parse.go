@@ -1,12 +1,11 @@
-package handler
+﻿package handler
 
 import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
-	userctx "hm-dianping/internal/ctx"
-	"hm-dianping/internal/dto"
+	"hm-dianping/internal/ctx"
 )
 
 func pathUint(c *gin.Context, name string) (uint64, error) {
@@ -19,29 +18,17 @@ func queryUint(c *gin.Context, name string) (uint64, error) {
 
 func queryInt(c *gin.Context, name string, fallback int) int {
 	value, err := strconv.Atoi(c.DefaultQuery(name, strconv.Itoa(fallback)))
-	if err != nil || value < 1 {
-		return fallback
-	}
+	if err != nil || value < 1 { return fallback }
 	return value
 }
 
-func fmtSscanf(value string, target *int64) (int, error) {
+func parseSscanf(value string, target *int64) {
 	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	*target = parsed
-	return 1, nil
-}
-
-func currentUser(c *gin.Context) (dto.UserDTO, error) {
-	return userctx.CurrentUser(c)
+	if err == nil { *target = parsed }
 }
 
 func viewerID(c *gin.Context) uint64 {
-	user, err := userctx.CurrentUser(c)
-	if err != nil {
-		return 0
-	}
+	user, err := ctx.CurrentUser(c)
+	if err != nil { return 0 }
 	return user.ID
 }

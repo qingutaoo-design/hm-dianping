@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	ErrSeckillStockNotEnough = errors.New("库存不足！")
-	ErrSeckillDuplicateOrder = errors.New("你已经抢过了！")
+	ErrSeckillStockNotEnough = errors.New("库存不足")
+	ErrSeckillDuplicateOrder = errors.New("你已经抢过了")
 )
 
 type VoucherOrderService struct {
@@ -35,51 +35,60 @@ func NewVoucherOrderService(db *gorm.DB, rdb *redis.Client, writer *kafka.Writer
 
 func (s *VoucherOrderService) OrderSeckill(ctx context.Context, voucherID, userID uint64) (uint64, error) {
 	orderID, err := s.idWorker.NextID(ctx, "order")
-	if err != nil {
-		return 0, err
-	}
+	if err != nil { return 0, err }
+
 	result, err := s.rdb.Eval(ctx, script.SeckillLua, []string{}, voucherID, userID, orderID).Int()
-	if err != nil {
-		return 0, err
-	}
-	if result == 1 {
-		return 0, ErrSeckillStockNotEnough
-	}
-	if result == 2 {
-		return 0, ErrSeckillDuplicateOrder
-	}
+	if err != nil { return 0, err }
+	if result == 1 { return 0, ErrSeckillStockNotEnough }
+	if result == 2 { return 0, ErrSeckillDuplicateOrder }
 
 	order := model.VoucherOrder{ID: orderID, VoucherID: voucherID, UserID: userID, Status: 1}
 	if s.writer == nil {
+		// 同步落库
 		if err := s.CreateVoucherOrder(ctx, &order); err != nil {
-			s.rollbackRedisSeckill(ctx, voucherID, userID)
+			s.rollbackRedis(ctx, voucherID, userID)
 			return 0, err
 		}
 		return orderID, nil
 	}
+	// 异步落库：发 Kafka 消息
 	body, err := json.Marshal(order)
 	if err != nil {
-		s.rollbackRedisSeckill(ctx, voucherID, userID)
+		s.rollbackRedis(ctx, voucherID, userID)
 		return 0, err
 	}
-	if err := s.writer.WriteMessages(ctx, kafka.Message{Key: []byte(strconv.FormatUint(userID, 10)), Value: body, Time: time.Now()}); err != nil {
-		s.rollbackRedisSeckill(ctx, voucherID, userID)
+	if err := s.writer.WriteMessages(ctx, kafka.Message{
+		Key:   []byte(strconv.FormatUint(userID, 10)),
+		Value: body,
+		Time:  time.Now(),
+	}); err != nil {
+		s.rollbackRedis(ctx, voucherID, userID)
 		return 0, err
 	}
 	return orderID, nil
 }
 
+// StartConsumer 启动 Kafka 消费者（指数退避重试）
 func (s *VoucherOrderService) StartConsumer(ctx context.Context, reader *kafka.Reader) {
 	go func() {
+		const (
+			initialBackoff = 100 * time.Millisecond
+			maxBackoff     = 5 * time.Second
+		)
+		backoff := initialBackoff
+
 		for {
 			msg, err := reader.FetchMessage(ctx)
 			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				log.Printf("fetch voucher order message: %v", err)
+				if ctx.Err() != nil { return }
+				log.Printf("fetch voucher order message: %v (retry in %v)", err, backoff)
+				time.Sleep(backoff)
+				backoff *= 2
+				if backoff > maxBackoff { backoff = maxBackoff }
 				continue
 			}
+			backoff = initialBackoff // 重置退避
+
 			var order model.VoucherOrder
 			if err := json.Unmarshal(msg.Value, &order); err != nil {
 				log.Printf("decode voucher order message: %v", err)
@@ -106,23 +115,19 @@ func (s *VoucherOrderService) CreateVoucherOrder(ctx context.Context, order *mod
 		if err := tx.Model(&model.VoucherOrder{}).Where("user_id = ? AND voucher_id = ?", order.UserID, order.VoucherID).Count(&count).Error; err != nil {
 			return err
 		}
-		if count > 0 {
-			return ErrSeckillDuplicateOrder
-		}
+		if count > 0 { return ErrSeckillDuplicateOrder }
+
 		res := tx.Model(&model.SeckillVoucher{}).
 			Where("voucher_id = ? AND stock > 0", order.VoucherID).
 			UpdateColumn("stock", gorm.Expr("stock - 1"))
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return ErrSeckillStockNotEnough
-		}
+		if res.Error != nil { return res.Error }
+		if res.RowsAffected == 0 { return ErrSeckillStockNotEnough }
+
 		return tx.Create(order).Error
 	})
 }
 
-func (s *VoucherOrderService) rollbackRedisSeckill(ctx context.Context, voucherID, userID uint64) {
+func (s *VoucherOrderService) rollbackRedis(ctx context.Context, voucherID, userID uint64) {
 	rollbackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 

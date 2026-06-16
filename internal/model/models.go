@@ -1,6 +1,20 @@
-package model
+﻿package model
 
 import "time"
+
+// UserView 用户公开信息视图
+type UserView struct {
+	ID       uint64 `json:"id,string"`
+	NickName string `json:"nickName"`
+	Icon     string `json:"icon"`
+}
+
+// ScrollResult 滚动分页结果
+type ScrollResult struct {
+	List    any   `json:"list"`
+	MinTime int64 `json:"minTime"`
+	Offset  int64 `json:"offset"`
+}
 
 type Blog struct {
 	ID         uint64    `gorm:"column:id;primaryKey" json:"id,string"`

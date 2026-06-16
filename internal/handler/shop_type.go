@@ -1,4 +1,4 @@
-package handler
+﻿package handler
 
 import (
 	"github.com/gin-gonic/gin"
@@ -6,19 +6,10 @@ import (
 	"hm-dianping/internal/service"
 )
 
-type ShopTypeHandler struct {
-	service *service.ShopTypeService
-}
-
-func NewShopTypeHandler(service *service.ShopTypeService) *ShopTypeHandler {
-	return &ShopTypeHandler{service: service}
-}
-
-func (h *ShopTypeHandler) List(c *gin.Context) {
-	list, err := h.service.List(c.Request.Context())
-	if err != nil {
-		writeFail(c, err)
-		return
+func HandleShopTypeList(svc *service.ShopTypeService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		list, err := svc.List(c.Request.Context())
+		if err != nil { writeFail(c, err); return }
+		writeOK(c, list)
 	}
-	writeOK(c, list)
 }

@@ -1,4 +1,4 @@
-package middleware
+﻿package middleware
 
 import (
 	"log"
@@ -6,12 +6,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"hm-dianping/internal/dto"
+	"hm-dianping/internal/response"
 )
 
 func Recovery() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
 		log.Printf("panic: %v", recovered)
-		c.JSON(http.StatusOK, dto.Fail("服务器异常"))
+		c.JSON(http.StatusOK, response.Fail("服务器异常"))
 	})
 }

@@ -1,4 +1,4 @@
-package app
+﻿package app
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm/logger"
 
 	"hm-dianping/internal/config"
-	"hm-dianping/internal/handler"
 	"hm-dianping/internal/router"
 	"hm-dianping/internal/service"
 )
@@ -31,13 +30,13 @@ type App struct {
 func New(cfg *config.Config) (*App, error) {
 	gin.SetMode(cfg.Server.Mode)
 
+	// === 1. GORM ===
 	gormDB, err := gorm.Open(mysql.Open(cfg.MySQL.DSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		return nil, err
 	}
-
 	db, err := gormDB.DB()
 	if err != nil {
 		return nil, err
@@ -46,6 +45,7 @@ func New(cfg *config.Config) (*App, error) {
 	db.SetMaxOpenConns(cfg.MySQL.MaxOpenConns)
 	db.SetConnMaxLifetime(time.Hour)
 
+	// === 2. Redis ===
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
@@ -55,8 +55,11 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
+	// === 3. Kafka（可选） ===
 	var writer *kafka.Writer
 	var reader *kafka.Reader
+	var cancelConsumer context.CancelFunc
+
 	if cfg.Kafka.Enabled {
 		writer = &kafka.Writer{
 			Addr:     kafka.TCP(cfg.Kafka.Brokers...),
@@ -70,42 +73,48 @@ func New(cfg *config.Config) (*App, error) {
 		})
 	}
 
-	services := service.NewContainer(cfg, gormDB, rdb, writer)
-	var cancelConsumer context.CancelFunc
+	// === 4. Service 层（独立构造，无 Container） ===
+	userSvc := service.NewUserService(gormDB, rdb)
+	shopSvc := service.NewShopService(gormDB, rdb)
+	shopTypeSvc := service.NewShopTypeService(gormDB, rdb)
+	followSvc := service.NewFollowService(gormDB, rdb, userSvc)
+	blogSvc := service.NewBlogService(gormDB, rdb, userSvc)
+	voucherSvc := service.NewVoucherService(gormDB, rdb)
+	voucherOrderSvc := service.NewVoucherOrderService(gormDB, rdb, writer)
+	uploadSvc := service.NewUploadService(cfg)
+
+	// === 5. Kafka 消费者 ===
 	if reader != nil {
 		consumerCtx, cancel := context.WithCancel(context.Background())
 		cancelConsumer = cancel
-		services.VoucherOrders.StartConsumer(consumerCtx, reader)
+		voucherOrderSvc.StartConsumer(consumerCtx, reader)
 	}
 
-	handlers := handler.NewContainer(cfg, services)
-	engine := router.New(cfg, rdb, handlers)
+	// === 6. Router（直接传 Service，无 Handler Container） ===
+	engine := router.New(cfg, rdb, userSvc, shopSvc, shopTypeSvc, blogSvc, followSvc, voucherSvc, voucherOrderSvc, uploadSvc)
 
-	return &App{Router: engine, db: db, rdb: rdb, writer: writer, reader: reader, cancelConsumer: cancelConsumer}, nil
+	return &App{
+		Router:         engine,
+		db:             db,
+		rdb:            rdb,
+		writer:         writer,
+		reader:         reader,
+		cancelConsumer: cancelConsumer,
+	}, nil
 }
 
 func (a *App) Close() {
-	if a.cancelConsumer != nil {
-		a.cancelConsumer()
-	}
+	if a.cancelConsumer != nil { a.cancelConsumer() }
 	if a.reader != nil {
-		if err := a.reader.Close(); err != nil {
-			log.Printf("close kafka reader: %v", err)
-		}
+		if err := a.reader.Close(); err != nil { log.Printf("close kafka reader: %v", err) }
 	}
 	if a.writer != nil {
-		if err := a.writer.Close(); err != nil {
-			log.Printf("close kafka writer: %v", err)
-		}
+		if err := a.writer.Close(); err != nil { log.Printf("close kafka writer: %v", err) }
 	}
 	if a.rdb != nil {
-		if err := a.rdb.Close(); err != nil {
-			log.Printf("close redis: %v", err)
-		}
+		if err := a.rdb.Close(); err != nil { log.Printf("close redis: %v", err) }
 	}
 	if a.db != nil {
-		if err := a.db.Close(); err != nil {
-			log.Printf("close db: %v", err)
-		}
+		if err := a.db.Close(); err != nil { log.Printf("close db: %v", err) }
 	}
 }

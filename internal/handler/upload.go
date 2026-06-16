@@ -1,4 +1,4 @@
-package handler
+﻿package handler
 
 import (
 	"github.com/gin-gonic/gin"
@@ -6,32 +6,19 @@ import (
 	"hm-dianping/internal/service"
 )
 
-type UploadHandler struct {
-	service *service.UploadService
+func HandleUploadBlog(svc *service.UploadService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		file, err := c.FormFile("file")
+		if err != nil { writeFail(c, err); return }
+		path, err := svc.SaveBlogImage(file)
+		if err != nil { writeFail(c, err); return }
+		writeOK(c, path)
+	}
 }
 
-func NewUploadHandler(service *service.UploadService) *UploadHandler {
-	return &UploadHandler{service: service}
-}
-
-func (h *UploadHandler) Blog(c *gin.Context) {
-	file, err := c.FormFile("file")
-	if err != nil {
-		writeFail(c, err)
-		return
+func HandleUploadDeleteBlog(svc *service.UploadService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := svc.DeleteBlogImage(c.Query("name")); err != nil { writeFail(c, err); return }
+		writeOK(c, nil)
 	}
-	path, err := h.service.SaveBlogImage(file)
-	if err != nil {
-		writeFail(c, err)
-		return
-	}
-	writeOK(c, path)
-}
-
-func (h *UploadHandler) DeleteBlog(c *gin.Context) {
-	if err := h.service.DeleteBlogImage(c.Query("name")); err != nil {
-		writeFail(c, err)
-		return
-	}
-	writeOK(c, nil)
 }

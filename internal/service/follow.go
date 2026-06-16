@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"gorm.io/gorm"
 
 	"hm-dianping/internal/constants"
-	"hm-dianping/internal/dto"
 	"hm-dianping/internal/model"
 )
 
 type FollowService struct {
 	db  *gorm.DB
 	rdb *redis.Client
+	us  *UserService
 }
 
-func NewFollowService(db *gorm.DB, rdb *redis.Client) *FollowService {
-	return &FollowService{db: db, rdb: rdb}
+func NewFollowService(db *gorm.DB, rdb *redis.Client, us *UserService) *FollowService {
+	return &FollowService{db: db, rdb: rdb, us: us}
 }
 
 func (s *FollowService) Follow(ctx context.Context, userID, followUserID uint64, isFollow bool) error {
@@ -46,25 +46,21 @@ func (s *FollowService) IsFollow(ctx context.Context, userID, followUserID uint6
 	return count > 0, nil
 }
 
-func (s *FollowService) Commons(ctx context.Context, userID, otherID uint64) ([]dto.UserDTO, error) {
+func (s *FollowService) Commons(ctx context.Context, userID, otherID uint64) ([]model.UserView, error) {
 	ids, err := s.rdb.SInter(ctx, constants.FollowKey+strconv.FormatUint(userID, 10), constants.FollowKey+strconv.FormatUint(otherID, 10)).Result()
 	if err != nil || len(ids) == 0 {
-		return []dto.UserDTO{}, err
+		return []model.UserView{}, err
 	}
 	uintIDs := make([]uint64, 0, len(ids))
 	for _, id := range ids {
 		parsed, err := strconv.ParseUint(id, 10, 64)
-		if err == nil {
-			uintIDs = append(uintIDs, parsed)
-		}
+		if err == nil { uintIDs = append(uintIDs, parsed) }
 	}
-	var users []model.User
-	if err := s.db.WithContext(ctx).Where("id IN ?", uintIDs).Find(&users).Error; err != nil {
-		return nil, err
-	}
-	result := make([]dto.UserDTO, 0, len(users))
-	for _, user := range users {
-		result = append(result, toUserDTO(user))
+	users, err := s.us.UsersByIDs(ctx, uintIDs)
+	if err != nil { return nil, err }
+	result := make([]model.UserView, 0, len(users))
+	for _, id := range uintIDs {
+		if u, ok := users[id]; ok { result = append(result, u) }
 	}
 	return result, nil
 }
